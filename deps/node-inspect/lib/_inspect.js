@@ -101,6 +101,37 @@ function runScript(script, scriptArgs, inspectHost, inspectPort, childPrint) {
                           ['--inspect', `--debug-brk=${inspectPort}`] :
                           [`--inspect-brk=${inspectPort}`])
                          .concat([script], scriptArgs);
+
+        const child = spawn(process.execPath, args);
+        child.stdout.setEncoding('utf8');
+        child.stderr.setEncoding('utf8');
+        child.stdout.on('data', childPrint);
+        child.stderr.on('data', childPrint);
+
+        let output = '';
+        function waitForListenHint(text) {
+          output += text;
+          if (/Debugger listening on/.test(output)) {
+            child.stderr.removeListener('data', waitForListenHint);
+            resolve(child);
+          }
+        }
+
+        child.stderr.on('data', waitForListenHint);
+      });
+    });
+}
+
+function runReplay(logPath, inspectHost, inspectPort, childPrint) {
+  return portIsFree(inspectHost, inspectPort)
+    .then(() => {
+      return new Promise((resolve) => {
+        const needDebugBrk = process.version.match(/^v(6|7)\./);
+        const args = (needDebugBrk ?
+                          ['--inspect', `--debug-brk=${inspectPort}`] :
+                          [`--inspect-brk=${inspectPort}`])
+                         .concat([`--replay-debug=${logPath}`, '--break-first']);
+
         const child = spawn(process.execPath, args);
         child.stdout.setEncoding('utf8');
         child.stderr.setEncoding('utf8');
@@ -159,13 +190,19 @@ class NodeInspector {
                                        options.host,
                                        options.port,
                                        this.childPrint.bind(this));
+    } else if(options.logPath) {
+      this._runScript = runReplay.bind(null,
+        options.logPath,
+        options.host,
+        options.port,
+        this.childPrint.bind(this));
     } else {
       this._runScript = () => Promise.resolve(null);
     }
 
     this.client = new InspectClient(options.port, options.host);
 
-    this.domainNames = ['Debugger', 'HeapProfiler', 'Profiler', 'Runtime'];
+    this.domainNames = ['Debugger', 'TimeTravel', 'HeapProfiler', 'Profiler', 'Runtime'];
     this.domainNames.forEach((domain) => {
       this[domain] = createAgentProxy(domain, this.client);
     });
@@ -291,10 +328,12 @@ function parseArgv([target, ...args]) {
   let port = getDefaultPort();
   let isRemote = false;
   let script = target;
+  let logPath = undefined;
   let scriptArgs = args;
 
   const hostMatch = target.match(/^([^:]+):(\d+)$/);
   const portMatch = target.match(/^--port=(\d+)$/);
+  const replayMatch = target.match(/^--replay-debug=(\S+)$/);
 
   if (hostMatch) {
     // Connecting to remote debugger
@@ -325,10 +364,14 @@ function parseArgv([target, ...args]) {
     }
     script = null;
     isRemote = true;
+  } else if(replayMatch) {
+    logPath = replayMatch[1];
+    script = args[0];
+    scriptArgs = args.slice(1);
   }
 
   return {
-    host, port, isRemote, script, scriptArgs,
+    host, port, isRemote, script, scriptArgs, logPath
   };
 }
 
