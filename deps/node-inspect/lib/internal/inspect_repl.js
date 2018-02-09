@@ -31,6 +31,7 @@ const debuglog = util.debuglog('inspect');
 const SHORTCUTS = {
   cont: 'c',
   next: 'n',
+  rnext: 'rn',
   step: 's',
   out: 'o',
   backtrace: 'bt',
@@ -45,6 +46,7 @@ kill                  Kill a running application or disconnect
 
 cont, c               Resume execution
 next, n               Continue to next line in current file
+rnext, rn             Reverse step to previous line
 step, s               Step into, potentially entering a function
 out, o                Step out, leaving the current function
 backtrace, bt         Print the current backtrace
@@ -273,7 +275,7 @@ function aliasProperties(target, mapping) {
 }
 
 function createRepl(inspector) {
-  const { Debugger, HeapProfiler, Profiler, Runtime } = inspector;
+  const { Debugger, TimeTravel, HeapProfiler, Profiler, Runtime } = inspector;
 
   let repl; // eslint-disable-line prefer-const
 
@@ -855,6 +857,11 @@ function createRepl(inspector) {
       get next() {
         handleResumed();
         return Debugger.stepOver();
+      },
+
+      get rnext() {
+        handleResumed();
+        return TimeTravel.stepBack();
       },
 
       get step() {
