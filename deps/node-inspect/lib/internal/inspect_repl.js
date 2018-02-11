@@ -30,9 +30,9 @@ const debuglog = util.debuglog('inspect');
 
 const SHORTCUTS = {
   cont: 'c',
-  contr: 'c-',
+  contreverse: 'cr',
   next: 'n',
-  nextr: 'n-',
+  nextreverse: 'nr',
   step: 's',
   out: 'o',
   backtrace: 'bt',
@@ -46,9 +46,9 @@ run, restart, r       Run the application or reconnect
 kill                  Kill a running application or disconnect
 
 cont, c               Resume execution
-contr, c-             Resume execution in reverse
+contreverse, cr       Resume execution in reverse
 next, n               Continue to next line in current file
-nextr, n-             Step in reverse to previous line
+nextreverse, nr       Step in reverse to previous line
 step, s               Step into, potentially entering a function
 out, o                Step out, leaving the current function
 backtrace, bt         Print the current backtrace
@@ -282,6 +282,8 @@ function createRepl(inspector) {
   const { Debugger, TimeTravel, HeapProfiler, Profiler, Runtime } = inspector;
 
   let rootscript = inspector.options.script;
+  let isInReplay = inspector.options.logPath !== undefined;
+
   let repl; // eslint-disable-line prefer-const
 
   // Things we want to keep around
@@ -859,14 +861,20 @@ function createRepl(inspector) {
         return Debugger.resume();
       },
 
-      get contr() {
+      get contreverse() {
         if (!TimeTravel) {
           print("This Node version does not support time-travel\nSee https://github.com/nodejs/node-chakracore");
           return undefined;
         }
         else {
-          handleResumed();
-          return TimeTravel.reverse();
+          if(!isInReplay) {
+            print("Must launch inspect in replay mode '--replay-debug' to use reverse continue.");
+            return undefined;
+          }
+          else {
+            handleResumed();
+            return TimeTravel.reverse();
+          }
         }
       },
 
@@ -875,14 +883,20 @@ function createRepl(inspector) {
         return Debugger.stepOver();
       },
 
-      get nextr() {
+      get nextreverse() {
         if (!TimeTravel) {
           print("This Node version does not support time-travel\nSee https://github.com/nodejs/node-chakracore");
           return undefined;
         }
         else {
-          handleResumed();
-          return TimeTravel.stepBack();
+          if(!isInReplay) {
+            print("Must launch inspect in replay mode '--replay-debug' to use reverse next.");
+            return undefined;
+          }
+          else {
+            handleResumed();
+            return TimeTravel.stepBack();
+          }
         }
       },
 
@@ -1060,7 +1074,6 @@ function createRepl(inspector) {
         else {        
             const absoluteDir = Path.resolve(dirname || Path.join(Path.dirname(rootscript), "_ttd_log_"));
             ensureTraceTarget(absoluteDir);
-            print(absoluteDir);
             TimeTravel.writeTTDLog({ uri: absoluteDir });
         }
       },
