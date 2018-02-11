@@ -30,8 +30,9 @@ const debuglog = util.debuglog('inspect');
 
 const SHORTCUTS = {
   cont: 'c',
+  contr: 'c-',
   next: 'n',
-  rnext: 'rn',
+  nextr: 'n-',
   step: 's',
   out: 'o',
   backtrace: 'bt',
@@ -45,8 +46,9 @@ run, restart, r       Run the application or reconnect
 kill                  Kill a running application or disconnect
 
 cont, c               Resume execution
+contr, c-             Resume execution in reverse
 next, n               Continue to next line in current file
-rnext, rn             Reverse step to previous line
+nextr, n-             Step in reverse to previous line
 step, s               Step into, potentially entering a function
 out, o                Step out, leaving the current function
 backtrace, bt         Print the current backtrace
@@ -78,6 +80,8 @@ profiles[n].save(filepath = 'node.cpuprofile')
 
 takeHeapSnapshot(filepath = 'node.heapsnapshot')
                       Take a heap snapshot and save to disk as JSON.
+writeTrace(filepath = '_ttd_log_')
+                      Dump time-travel trace to specified directory.
 `.trim();
 
 const FUNCTION_NAME_PATTERN = /^(?:function\*? )?([^(\s]+)\(/;
@@ -277,6 +281,7 @@ function aliasProperties(target, mapping) {
 function createRepl(inspector) {
   const { Debugger, TimeTravel, HeapProfiler, Profiler, Runtime } = inspector;
 
+  let rootscript = inspector.options.script;
   let repl; // eslint-disable-line prefer-const
 
   // Things we want to keep around
@@ -397,7 +402,7 @@ function createRepl(inspector) {
         knownBreakpoints.forEach(({ location }) => {
           if (!location) return;
           if (scriptId === location.scriptId &&
-              i === (location.lineNumber + 1)) {
+            i === (location.lineNumber + 1)) {
             isBreakpoint = true;
           }
         });
@@ -854,14 +859,31 @@ function createRepl(inspector) {
         return Debugger.resume();
       },
 
+      get contr() {
+        if (!TimeTravel) {
+          print("This Node version does not support time-travel\nSee https://github.com/nodejs/node-chakracore");
+          return undefined;
+        }
+        else {
+          handleResumed();
+          return TimeTravel.reverse();
+        }
+      },
+
       get next() {
         handleResumed();
         return Debugger.stepOver();
       },
 
-      get rnext() {
-        handleResumed();
-        return TimeTravel.stepBack();
+      get nextr() {
+        if (!TimeTravel) {
+          print("This Node version does not support time-travel\nSee https://github.com/nodejs/node-chakracore");
+          return undefined;
+        }
+        else {
+          handleResumed();
+          return TimeTravel.stepBack();
+        }
       },
 
       get step() {
@@ -944,6 +966,103 @@ function createRepl(inspector) {
               reject(error);
             });
         });
+      },
+
+      writeTrace(dirname) {
+        function ensureTraceTarget(pth) {
+          //I don't like this and don't want it to be happening so I am going to bail
+          if (!Path.isAbsolute(pth)) {
+            return false;
+          }
+
+          var okdir = createTargetDirectory(pth);
+          if (!okdir) {
+            return false;
+          }
+
+          return deleteTargetDirectoryContents(pth);
+        }
+
+        function createTargetDirectory(pth) {
+          //see if it just exists and, if so, just return true
+          var accessok = FS.constants.R_OK | FS.constants.W_OK | FS.constants.X_OK;
+          try {
+            FS.accessSync(pth, accessok);
+            if (FS.statSync(pth).isDirectory()) {
+              return true;
+            }
+          } catch (ei) { }
+
+          //walk up the directory to see where the first valid part of the path is
+          var prefixPath = pth;
+          var suffixPaths = [];
+          var baseFound = false;
+          do {
+            //check for bad prefix
+            if (prefixPath === Path.dirname(prefixPath)) {
+              process.stderr.write(`Failed prefix: ${pth} -> ${prefixPath}\n`);
+              return false;
+            }
+
+            suffixPaths.push(Path.basename(prefixPath)); //reverse order
+            prefixPath = Path.dirname(prefixPath);
+
+            try {
+              FS.accessSync(prefixPath, accessok);
+              baseFound = FS.statSync(prefixPath).isDirectory();
+            } catch (ei) { }
+          } while (!baseFound);
+
+          //now extend the prefix with all the suffix parts
+          while (suffixPaths.length > 0) {
+            try {
+              prefixPath = Path.resolve(prefixPath, suffixPaths.pop());
+              FS.mkdirSync(prefixPath);
+            } catch (ec) {
+              process.stderr.write(`Failed creating trace directory : ${ec}\n`);
+              return false;
+            }
+          }
+
+          return true;
+        }
+
+        function deleteTargetDirectoryContents(pth) {
+          try {
+            var items = FS.readdirSync(pth);
+            for (var i = 0; i < items.length; i++) {
+              var fpath = Path.resolve(pth, items[i]);
+              var stats = FS.lstatSync(fpath);
+              if (stats.isFile()) {
+                FS.unlinkSync(fpath);
+              } else if (stats.isDirectory()) {
+                var recok = deleteTargetDirectoryContents(fpath);
+                if (!recok) {
+                  return false;
+                }
+
+                FS.rmdirSync(fpath);
+              } else {
+                return false; //something strange in here.
+              }
+            }
+          } catch (ex) {
+            process.stderr.write(`Failed cleaning directory contents: ${ex}\n`);
+            return false;
+          }
+
+          return true;
+        }
+
+        if (!TimeTravel) {
+          print("This Node version does not support time-travel\nSee https://github.com/nodejs/node-chakracore");
+        }
+        else {        
+            const absoluteDir = Path.resolve(dirname || Path.join(Path.dirname(rootscript), "_ttd_log_"));
+            ensureTraceTarget(absoluteDir);
+            print(absoluteDir);
+            TimeTravel.writeTTDLog({ uri: absoluteDir });
+        }
       },
 
       get watchers() {

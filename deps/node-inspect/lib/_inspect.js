@@ -100,7 +100,7 @@ function runScript(script, scriptArgs, inspectHost, inspectPort, childPrint) {
         const args = (needDebugBrk ?
                           ['--inspect', `--debug-brk=${inspectPort}`] :
                           [`--inspect-brk=${inspectPort}`])
-                         .concat([script], scriptArgs);
+                         .concat(["--tt-debug", script], scriptArgs);
 
         const child = spawn(process.execPath, args);
         child.stdout.setEncoding('utf8');
