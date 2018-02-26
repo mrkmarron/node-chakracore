@@ -1074,7 +1074,10 @@ function createRepl(inspector) {
         else {        
             const absoluteDir = Path.resolve(dirname || Path.join(Path.dirname(rootscript), "_ttd_log_"));
             ensureTraceTarget(absoluteDir);
+            print(`Writing time-travel trace to "${absoluteDir}"`);
+            print("...");
             TimeTravel.writeTTDLog({ uri: absoluteDir });
+            print("done!");
         }
       },
 

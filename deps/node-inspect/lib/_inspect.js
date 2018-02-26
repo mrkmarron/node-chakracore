@@ -130,7 +130,7 @@ function runReplay(logPath, inspectHost, inspectPort, childPrint) {
         const args = (needDebugBrk ?
                           ['--inspect', `--debug-brk=${inspectPort}`] :
                           [`--inspect-brk=${inspectPort}`])
-                         .concat([`--replay-debug=${logPath}`, '--break-first']);
+                         .concat([`--replay-debug=${logPath}`]);
 
         const child = spawn(process.execPath, args);
         child.stdout.setEncoding('utf8');
